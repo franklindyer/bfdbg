@@ -2,13 +2,20 @@ module Lib
     ( someFunc
     ) where
 
+import Brick
 import Control.Lens
+import Control.Monad (void, forever)
+import Control.Monad.State.Strict
 import Control.Monad.State.Lazy as S
 import Data.Char
 import System.IO
 import Text.Parsec
 import Text.Parsec.Char
 import Text.Printf
+
+import qualified Graphics.Vty as V
+
+data Void
 
 data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BFProgram deriving Show
 
@@ -25,18 +32,20 @@ data BFArchitecture cell buf = BFArchitecture {
     bufOutInterface :: buf -> Handle -> IO buf
 }
 
-data BFMachine cell buf = BFMachine {
-    bfarch  :: BFArchitecture cell buf,
-    time    :: Int,
-    ncells  :: Int,
-    headpos :: Int,
-    cells   :: [cell],
-    bufin   :: buf,
-    bufout  :: buf,
-    bfstack :: [BFProgram]
-}
+data BFStatus = BFError String | BFOk deriving (Eq, Show)
 
-data BFStatus = BFError String | BFOk
+data BFMachine cell buf = BFMachine {
+    bfarch      :: BFArchitecture cell buf,
+    time        :: Int,
+    ncells      :: Int,
+    headpos     :: Int,
+    cells       :: [cell],
+    bufin       :: buf,
+    bufout      :: buf,
+    bfstack     :: [BFProgram],
+    bfhist      :: [BFProgram],
+    bfstatus    :: BFStatus
+}
 
 type BFMachMonad cell buf = S.State (BFMachine cell buf)
 
@@ -67,6 +76,7 @@ cLEFT_OOB_ERRORMSG  = "Head moved out of bounds to the left"
 cRIGHT_OOB_ERRORMSG = "Head moved out of bounds to the right"
 cNO_INC_ERRORMSG    = "Could not increment cell"
 cNO_DEC_ERRORMSG    = "Could not decrement cell"
+cEND_OF_CODE_MSG    = "Code is finished running."
 
 bfInitMachine :: BFArchitecture cell buf -> Int -> BFMachine cell buf
 bfInitMachine arch size 
@@ -78,7 +88,9 @@ bfInitMachine arch size
         cells = replicate size (bfZero arch),
         bufin = bfEmptyBuf arch,
         bufout = bfEmptyBuf arch,
-        bfstack = []
+        bfstack = [],
+        bfhist = [],
+        bfstatus = BFOk
     }
 
 bfRequire :: String -> Bool -> BFStatus
@@ -109,10 +121,30 @@ runCommand arch cmd
                 (BFOk , bfm { bufin = buf', cells = cells bfm & element (headpos bfm) .~ newc }))
             BFPut -> state (\bfm ->
                 (BFOk , bfm { bufout = writeFromCell arch (bufout bfm) (cells bfm !! headpos bfm) }))
-            BFLoop bfprog -> state (\bfm -> 
+            BFLoop (BFProgram bfprog) -> state (\bfm -> 
                 (BFOk , if (cells bfm !! headpos bfm) == bfZero arch 
                         then bfm 
-                        else bfm { bfstack = bfprog:(bfstack bfm) } ))
+                        else let newprog = BFProgram (bfprog ++ [BFLoop (BFProgram bfprog)]) in
+                        case (bfstack bfm) of
+                            [] -> bfm { bfstack = [newprog] }
+                            ((BFProgram []):progs) -> bfm { bfstack = newprog:progs }
+                            progs -> bfm { bfstack = newprog:progs }))
+
+runCommandError :: Eq cell =>  BFArchitecture cell buf -> BFCommand -> BFMachMonad cell buf BFStatus
+runCommandError arch cmd
+    = do
+        newstatus <- runCommand arch cmd
+        state (\bfm -> (newstatus, bfm { bfstatus = newstatus }))
+
+runNextCommand :: Eq cell => BFArchitecture cell buf -> BFMachMonad cell buf BFStatus
+runNextCommand arch
+    = state (\bfm ->
+        if bfstatus bfm /= BFOk then (bfstatus bfm, bfm) else
+        case (bfstack bfm) of
+            [] -> (BFError cEND_OF_CODE_MSG, bfm { bfstatus = BFError cEND_OF_CODE_MSG })
+            ((BFProgram []):progs) -> (BFOk, bfm { bfstack = progs })
+            ((BFProgram (cmd:cmds)):progs) 
+                -> S.runState (runCommandError arch cmd) (bfm { bfstack = (BFProgram cmds):progs }))
 
 -- -- -- -- -- --
 -- DISPLAYING  --
@@ -123,8 +155,54 @@ data BFViewSettings cell = BFViewSettings {
     cellSpacing :: Int
 }
 
-bfShowMach :: BFViewSettings cell -> BFMachine cell buf -> String
-bfShowMach conf bfm = foldr (\x y -> showCell conf x ++ ' ':y) "" (cells bfm)
+bfShowMem :: BFViewSettings cell -> BFMachine cell buf -> String
+bfShowMem conf bfm
+    = foldr (\x y -> showCell conf x ++ ' ':y) "" (cells bfm) ++
+      case (bfstatus bfm) of
+        BFOk -> "\nRunning..."
+        BFError msg -> "\n" ++ msg
+
+bfShowMemPane :: BFViewSettings cell -> BFMachine cell buf -> Widget ()
+bfShowMemPane bfvs = str . (bfShowMem bfvs)
+
+bfShowProg :: BFProgram -> String
+bfShowProg (BFProgram prog) = go "" prog
+    where
+        go acc [] = acc
+        go acc (cmd:cmds) =
+            case cmd of
+                BFLeft -> go ('>':acc) cmds
+                BFRight -> go ('<':acc) cmds
+                BFPlus -> go ('+':acc) cmds
+                BFMinus -> go ('-':acc) cmds
+                BFGet -> go (',':acc) cmds
+                BFPut -> go ('.':acc) cmds
+                BFLoop prog -> go ('[':acc ++ "]") cmds
+
+bfUI :: BFViewSettings cell -> BFMachine cell buf -> [Widget ()]
+bfUI bfvs = (:[]) . (bfShowMemPane bfvs)
+
+-- -- -- -- -- --
+-- CONTROLLER  --
+-- -- -- -- -- --
+
+bfAppEvent :: 
+    Eq cell => BFArchitecture cell buf -> BrickEvent () Void -> EventM () (BFMachine cell buf) ()
+bfAppEvent arch e =
+    case e of
+        VtyEvent (V.EvKey V.KEsc []) -> halt
+        VtyEvent _ -> state (\bfm -> ((), snd $ S.runState (runNextCommand arch) bfm))
+
+bfMakeApp :: 
+    Eq cell => BFArchitecture cell buf -> BFViewSettings cell -> App (BFMachine cell buf) Void ()
+bfMakeApp arch bfvs
+    = App {
+        appDraw = bfUI bfvs,
+        appChooseCursor = showFirstCursor,
+        appHandleEvent = bfAppEvent arch,
+        appStartEvent = return (),
+        appAttrMap = const $ attrMap V.defAttr []
+      }
 
 -- -- -- -- -- -- --
 -- ARCHITECTURES  --
@@ -149,23 +227,32 @@ bf256ou = BFArchitecture {
 myShow :: Int -> String
 myShow x = printf "%02x" x
 
-bfprog = "+>++>+++>++++++++++++++++"
+bfprog = "+>++>+++>++++++++++++++++[->+<]"
+-- bfprog = "++++-----<"
 bfparsed = either (\_ -> BFProgram []) id (parse bfParser "" bfprog)
 
 someFunc :: IO ()
+someFunc
+    = do
+        let bfm = (bfInitMachine bf256ou 10) { bfstack = [bfparsed] }
+        let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
+        void $ customMainWithDefaultVty Nothing (bfMakeApp bf256ou bfvs) bfm
 -- someFunc = putStrLn "someFunc"
+{-
 someFunc 
     = do
         putStrLn $ show bfparsed
-        let bfm = bfInitMachine bf256ou 10
-        go bfparsed bfm
+        let bfm = (bfInitMachine bf256ou 10) { bfstack = [bfparsed] }
+        go bfm
         return ()
     where
-        bfv = bfShowMach (BFViewSettings {showCell = myShow, cellSpacing = 0})
-        go :: BFProgram -> BFMachine Int (Maybe Int) -> IO (BFProgram, BFMachine Int (Maybe Int))
-        go (BFProgram []) bfm = return (BFProgram [], bfm)
-        go (BFProgram (cmd:cmds)) bfm
+        bfv = bfShowMem (BFViewSettings {showCell = myShow, cellSpacing = 0})
+        go :: BFMachine Int (Maybe Int) -> IO (BFMachine Int (Maybe Int))
+        go bfm
             = do
-               let (_,bfm') = runState (runCommand bf256ou cmd) bfm
+               let (bfmsg , bfm') = S.runState (runNextCommand bf256ou) bfm
                putStrLn $ bfv bfm'
-               go (BFProgram cmds) bfm' 
+               case bfmsg of
+                BFOk -> go bfm'
+                (BFError msg) -> putStrLn msg >> return bfm'
+-}
