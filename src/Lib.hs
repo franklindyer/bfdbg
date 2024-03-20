@@ -3,6 +3,8 @@ module Lib
     ) where
 
 import Brick
+import Brick.BChan
+import Control.Concurrent (threadDelay, forkIO)
 import Control.Lens
 import Control.Monad (void, forever)
 import Control.Monad.State.Strict
@@ -16,6 +18,7 @@ import Text.Printf
 import qualified Graphics.Vty as V
 
 data Void
+data TickerEvent = TickerEvent
 
 data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BFProgram | BFBreak Int
     deriving Show
@@ -48,7 +51,7 @@ data BFMachine cell buf = BFMachine {
 
 type BFMachMonad cell buf = S.State (BFMachine cell buf)
 
-data BFDebugState = DebugPaused | DebugRunning | DebugJumping | DebugStepping
+data BFDebugState = DebugPaused | DebugRunning | DebugJumping | DebugStepping deriving Eq
 
 data BFDebugger cell buf = BFDebugger {
     bfmach :: BFMachine cell buf,
@@ -150,6 +153,10 @@ runNextCommand
             ((BFProgram (cmd:cmds)):progs) 
                 -> S.runState (runCommand cmd) (bfm { bfstack = (BFProgram cmds):progs }))
 
+isPause :: BFResult -> Bool
+isPause (BFPause n) = True
+isPause _           = False
+
 debuggerStep :: Eq cell => BFDebugMonad cell buf ()
 debuggerStep
     = state (\bfdb ->
@@ -158,7 +165,7 @@ debuggerStep
             _ ->
                 let bfm = bfmach bfdb in
                 let (stat, bfm') = S.runState runNextCommand bfm in
-                ((), bfdb { bfmach = bfm', bfstatus = stat }))                
+                ((), bfdb { bfmach = bfm', bfstatus = stat }))
 
 debuggerJump :: Eq cell => BFDebugMonad cell buf ()
 debuggerJump
@@ -225,14 +232,18 @@ bfUI bfvs bfdb = [bfShowMemPane bfvs bfdb <=> bfShowDbgPane bfvs bfdb]
 -- -- -- -- -- --
 
 bfAppEvent :: 
-    Eq cell => BrickEvent () Void -> EventM () (BFDebugger cell buf) ()
+    Eq cell => BrickEvent () TickerEvent -> EventM () (BFDebugger cell buf) ()
 bfAppEvent e =
     case e of
         VtyEvent (V.EvKey V.KEsc []) -> halt
-        VtyEvent _ -> state (\bfdb -> S.runState debuggerJump bfdb)
+        VtyEvent _ -> state (\bfdb -> S.runState debuggerStep bfdb)
+        AppEvent TickerEvent -> state (\bfdb ->  
+            if debugstate bfdb == DebugRunning
+            then S.runState debuggerStep bfdb
+            else ((), bfdb))
 
 bfMakeApp :: 
-    Eq cell => BFViewSettings cell -> App (BFDebugger cell buf) Void ()
+    Eq cell => BFViewSettings cell -> App (BFDebugger cell buf) TickerEvent ()
 bfMakeApp bfvs
     = App {
         appDraw = bfUI bfvs,
@@ -265,7 +276,7 @@ bf256ou = BFArchitecture {
 myShow :: Int -> String
 myShow x = printf "%02x" x
 
-bfprog = "+>++>@+++>@++++++++++++++++@[->+<]@"
+bfprog = "+>++>@+++>@++++++++++++++++@[->+<@]"
 -- bfprog = "++++-----<"
 bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 
@@ -275,7 +286,13 @@ someFunc
         let bfm = (bfInitMachine bf256ou 30) { bfstack = [bfparsed] }
         let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
         let bfdb = BFDebugger {bfmach = bfm, bfstatus = BFOk, debugstate = DebugStepping, bfoutput = ""}
-        void $ customMainWithDefaultVty Nothing (bfMakeApp bfvs) bfdb
+
+        chan <- newBChan 10
+        void $ forkIO $ forever $ do
+            writeBChan chan TickerEvent
+            threadDelay 500000
+
+        void $ customMainWithDefaultVty (Just chan) (bfMakeApp bfvs) bfdb
 -- someFunc = putStrLn "someFunc"
 {-
 someFunc 
