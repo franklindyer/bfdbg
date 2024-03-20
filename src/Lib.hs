@@ -165,7 +165,8 @@ debuggerStep
             _ ->
                 let bfm = bfmach bfdb in
                 let (stat, bfm') = S.runState runNextCommand bfm in
-                ((), bfdb { bfmach = bfm', bfstatus = stat }))
+                let newdbg = if isPause stat then DebugStepping else debugstate bfdb in
+                ((), bfdb { bfmach = bfm', bfstatus = stat, debugstate = newdbg }))
 
 debuggerJump :: Eq cell => BFDebugMonad cell buf ()
 debuggerJump
@@ -236,6 +237,7 @@ bfAppEvent ::
 bfAppEvent e =
     case e of
         VtyEvent (V.EvKey V.KEsc []) -> halt
+        VtyEvent (V.EvKey V.KEnter []) -> state (\bfdb -> ((), bfdb { debugstate = DebugRunning }))
         VtyEvent _ -> state (\bfdb -> S.runState debuggerStep bfdb)
         AppEvent TickerEvent -> state (\bfdb ->  
             if debugstate bfdb == DebugRunning
@@ -285,7 +287,7 @@ someFunc
     = do
         let bfm = (bfInitMachine bf256ou 30) { bfstack = [bfparsed] }
         let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
-        let bfdb = BFDebugger {bfmach = bfm, bfstatus = BFOk, debugstate = DebugStepping, bfoutput = ""}
+        let bfdb = BFDebugger {bfmach = bfm, bfstatus = BFOk, debugstate = DebugRunning, bfoutput = ""}
 
         chan <- newBChan 10
         void $ forkIO $ forever $ do
