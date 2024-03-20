@@ -17,7 +17,7 @@ import qualified Graphics.Vty as V
 
 data Void
 
-data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BFProgram | BFBreak 
+data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BFProgram | BFBreak Int
     deriving Show
 
 data BFProgram = BFProgram [BFCommand] deriving Show
@@ -33,7 +33,7 @@ data BFArchitecture cell buf = BFArchitecture {
     bufOutInterface :: buf -> Handle -> IO buf
 }
 
-data BFStatus = BFError String | BFOk deriving (Eq, Show)
+data BFResult = BFOk | BFError String | BFPause Int deriving (Eq, Show)
 
 data BFMachine cell buf = BFMachine {
     bfarch      :: BFArchitecture cell buf,
@@ -52,7 +52,7 @@ data BFDebugState = DebugPaused | DebugRunning | DebugJumping | DebugStepping
 
 data BFDebugger cell buf = BFDebugger {
     bfmach :: BFMachine cell buf,
-    bfstatus :: BFStatus,
+    bfstatus :: BFResult,
     debugstate :: BFDebugState,
     bfoutput :: String
 }
@@ -63,7 +63,7 @@ type BFDebugMonad cell buf = S.State (BFDebugger cell buf)
 -- PARSING  --
 -- -- -- -- --
 
-bfParsePrimitive :: Parsec String st BFCommand
+bfParsePrimitive :: Parsec String Int BFCommand
 bfParsePrimitive
     = (char '<' >> return BFLeft)
         <|> (char '>' >> return BFRight)
@@ -71,8 +71,9 @@ bfParsePrimitive
         <|> (char '-' >> return BFMinus)
         <|> (char '.' >> return BFGet)
         <|> (char ',' >> return BFPut)
+        <|> (char '@' >> do { n <- getState; modifyState (+1); return (BFBreak n)})
 
-bfParser :: Parsec String st BFProgram
+bfParser :: Parsec String Int BFProgram
 bfParser
     = fmap BFProgram $ many $
       bfParsePrimitive
@@ -101,10 +102,10 @@ bfInitMachine arch size
         bfstack = []
     }
 
-bfRequire :: String -> Bool -> BFStatus
+bfRequire :: String -> Bool -> BFResult
 bfRequire msg cond = if cond then BFOk else BFError msg 
 
-runCommand :: Eq cell => BFCommand -> BFMachMonad cell buf BFStatus
+runCommand :: Eq cell => BFCommand -> BFMachMonad cell buf BFResult
 runCommand cmd
     = do
         case cmd of
@@ -137,8 +138,9 @@ runCommand cmd
                             [] -> bfm { bfstack = [newprog] }
                             ((BFProgram []):progs) -> bfm { bfstack = newprog:progs }
                             progs -> bfm { bfstack = newprog:progs }))
+            BFBreak n -> state (\bfm -> (BFPause n, bfm))
 
-runNextCommand :: Eq cell => BFMachMonad cell buf BFStatus
+runNextCommand :: Eq cell => BFMachMonad cell buf BFResult
 runNextCommand
     = state (\bfm ->
         let arch = bfarch bfm in
@@ -151,10 +153,31 @@ runNextCommand
 debuggerStep :: Eq cell => BFDebugMonad cell buf ()
 debuggerStep
     = state (\bfdb ->
-        if bfstatus bfdb /= BFOk then ((), bfdb) else 
-        let bfm = bfmach bfdb in
-        let (stat, bfm') = S.runState runNextCommand bfm in
-        ((), bfdb { bfmach = bfm', bfstatus = stat }))
+        case (bfstatus bfdb) of
+            BFError _ -> ((), bfdb)
+            _ ->
+                let bfm = bfmach bfdb in
+                let (stat, bfm') = S.runState runNextCommand bfm in
+                ((), bfdb { bfmach = bfm', bfstatus = stat }))                
+
+debuggerJump :: Eq cell => BFDebugMonad cell buf ()
+debuggerJump
+    = do
+        debuggerStep
+        bfdb <- get
+        case (bfstatus bfdb) of
+            BFPause _ -> return ()
+            BFError _ -> return ()
+            _ -> debuggerJump
+
+debuggerJumpTo :: Eq cell => Int -> BFDebugMonad cell buf ()
+debuggerJumpTo n
+    = do
+        debuggerStep
+        bfdb <- get
+        if (bfstatus bfdb) == BFPause n
+            then return ()
+            else debuggerJumpTo n
 
 -- -- -- -- -- --
 -- DISPLAYING  --
@@ -173,6 +196,13 @@ bfShowMem conf bfm
 bfShowMemPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
 bfShowMemPane bfvs = strWrap . (bfShowMem bfvs) . bfmach
 
+bfShowDbgPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
+bfShowDbgPane bfvs bfdb = str $
+    case (bfstatus bfdb) of
+        BFOk -> "Running..."
+        BFError msg -> msg
+        BFPause n -> "Stopped at breakpoint " ++ show n
+
 bfShowProg :: BFProgram -> String
 bfShowProg (BFProgram prog) = go "" prog
     where
@@ -188,7 +218,7 @@ bfShowProg (BFProgram prog) = go "" prog
                 BFLoop prog -> go ('[':acc ++ "]") cmds
 
 bfUI :: BFViewSettings cell -> BFDebugger cell buf -> [Widget ()]
-bfUI bfvs = (:[]) . (bfShowMemPane bfvs)
+bfUI bfvs bfdb = [bfShowMemPane bfvs bfdb <=> bfShowDbgPane bfvs bfdb]
 
 -- -- -- -- -- --
 -- CONTROLLER  --
@@ -199,7 +229,7 @@ bfAppEvent ::
 bfAppEvent e =
     case e of
         VtyEvent (V.EvKey V.KEsc []) -> halt
-        VtyEvent _ -> state (\bfdb -> S.runState debuggerStep bfdb)
+        VtyEvent _ -> state (\bfdb -> S.runState debuggerJump bfdb)
 
 bfMakeApp :: 
     Eq cell => BFViewSettings cell -> App (BFDebugger cell buf) Void ()
@@ -235,9 +265,9 @@ bf256ou = BFArchitecture {
 myShow :: Int -> String
 myShow x = printf "%02x" x
 
-bfprog = "+>++>+++>++++++++++++++++[->+<]"
+bfprog = "+>++>@+++>@++++++++++++++++@[->+<]@"
 -- bfprog = "++++-----<"
-bfparsed = either (\_ -> BFProgram []) id (parse bfParser "" bfprog)
+bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 
 someFunc :: IO ()
 someFunc
