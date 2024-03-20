@@ -8,13 +8,11 @@ import Data.Char
 import System.IO
 import Text.Parsec
 import Text.Parsec.Char
+import Text.Printf
 
-someFunc :: IO ()
-someFunc = putStrLn "someFunc"
+data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BFProgram deriving Show
 
-data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BFProgram
-
-data BFProgram = BFProgram [BFCommand]
+data BFProgram = BFProgram [BFCommand] deriving Show
 
 data BFArchitecture cell buf = BFArchitecture {
     bfZero          :: cell,
@@ -34,7 +32,8 @@ data BFMachine cell buf = BFMachine {
     headpos :: Int,
     cells   :: [cell],
     bufin   :: buf,
-    bufout  :: buf
+    bufout  :: buf,
+    bfstack :: [BFProgram]
 }
 
 data BFStatus = BFError String | BFOk
@@ -78,13 +77,14 @@ bfInitMachine arch size
         headpos = 0,
         cells = replicate size (bfZero arch),
         bufin = bfEmptyBuf arch,
-        bufout = bfEmptyBuf arch
+        bufout = bfEmptyBuf arch,
+        bfstack = []
     }
 
 bfRequire :: String -> Bool -> BFStatus
 bfRequire msg cond = if cond then BFOk else BFError msg 
 
-runCommand :: BFArchitecture cell buf -> BFCommand -> BFMachMonad cell buf BFStatus
+runCommand :: Eq cell => BFArchitecture cell buf -> BFCommand -> BFMachMonad cell buf BFStatus
 runCommand arch cmd
     = do
         case cmd of
@@ -109,17 +109,22 @@ runCommand arch cmd
                 (BFOk , bfm { bufin = buf', cells = cells bfm & element (headpos bfm) .~ newc }))
             BFPut -> state (\bfm ->
                 (BFOk , bfm { bufout = writeFromCell arch (bufout bfm) (cells bfm !! headpos bfm) }))
+            BFLoop bfprog -> state (\bfm -> 
+                (BFOk , if (cells bfm !! headpos bfm) == bfZero arch 
+                        then bfm 
+                        else bfm { bfstack = bfprog:(bfstack bfm) } ))
 
 -- -- -- -- -- --
 -- DISPLAYING  --
 -- -- -- -- -- --
 
-data BFViewSettings = BFViewSettings {
+data BFViewSettings cell = BFViewSettings {
+    showCell    :: cell -> String,
     cellSpacing :: Int
 }
 
--- bfShowMach :: Show cell => BFViewSettings -> BFMachine cell buf -> String
-
+bfShowMach :: BFViewSettings cell -> BFMachine cell buf -> String
+bfShowMach conf bfm = foldr (\x y -> showCell conf x ++ ' ':y) "" (cells bfm)
 
 -- -- -- -- -- -- --
 -- ARCHITECTURES  --
@@ -135,4 +140,32 @@ bf256ou = BFArchitecture {
     writeFromCell = \b -> Just,
     bufInInterface = \c -> \hdl -> maybe (fmap (Just . ord) $ hGetChar hdl) (return . Just) c,
     bufOutInterface = \c -> \hdl -> (maybe (return ()) (\c -> hPutChar hdl (chr c)) c) >> return Nothing
-} 
+}
+
+-- -- -- --
+-- MAIN  --
+-- -- -- -- 
+
+myShow :: Int -> String
+myShow x = printf "%02x" x
+
+bfprog = "+>++>+++>++++++++++++++++"
+bfparsed = either (\_ -> BFProgram []) id (parse bfParser "" bfprog)
+
+someFunc :: IO ()
+-- someFunc = putStrLn "someFunc"
+someFunc 
+    = do
+        putStrLn $ show bfparsed
+        let bfm = bfInitMachine bf256ou 10
+        go bfparsed bfm
+        return ()
+    where
+        bfv = bfShowMach (BFViewSettings {showCell = myShow, cellSpacing = 0})
+        go :: BFProgram -> BFMachine Int (Maybe Int) -> IO (BFProgram, BFMachine Int (Maybe Int))
+        go (BFProgram []) bfm = return (BFProgram [], bfm)
+        go (BFProgram (cmd:cmds)) bfm
+            = do
+               let (_,bfm') = runState (runCommand bf256ou cmd) bfm
+               putStrLn $ bfv bfm'
+               go (BFProgram cmds) bfm' 
