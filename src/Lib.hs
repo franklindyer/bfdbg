@@ -10,6 +10,7 @@ import Control.Monad (void, forever)
 import Control.Monad.State.Strict
 import Control.Monad.State.Lazy as S
 import Data.Char
+import Data.Maybe
 import System.IO
 import Text.Parsec
 import Text.Parsec.Char
@@ -32,8 +33,8 @@ data BFArchitecture cell buf = BFArchitecture {
     decrementCell   :: cell -> Maybe cell,
     readToCell      :: buf -> (buf, cell),
     writeFromCell   :: buf -> cell -> buf,
-    bufInInterface  :: buf -> Handle -> IO buf,
-    bufOutInterface :: buf -> Handle -> IO buf
+    bufInInterface  :: buf -> (buf, Bool),      -- Bool indicates whether more input is needed
+    bufOutInterface :: buf -> (buf, Maybe Char)
 }
 
 data BFResult = BFOk | BFError String | BFPause Int deriving (Eq, Show)
@@ -72,8 +73,8 @@ bfParsePrimitive
         <|> (char '>' >> return BFRight)
         <|> (char '+' >> return BFPlus)
         <|> (char '-' >> return BFMinus)
-        <|> (char '.' >> return BFGet)
-        <|> (char ',' >> return BFPut)
+        <|> (char '.' >> return BFPut)
+        <|> (char ',' >> return BFGet)
         <|> (char '@' >> do { n <- getState; modifyState (+1); return (BFBreak n)})
 
 bfParser :: Parsec String Int BFProgram
@@ -166,7 +167,14 @@ debuggerStep
                 let bfm = bfmach bfdb in
                 let (stat, bfm') = S.runState runNextCommand bfm in
                 let newdbg = if isPause stat then DebugStepping else debugstate bfdb in
-                ((), bfdb { bfmach = bfm', bfstatus = stat, debugstate = newdbg }))
+                let (newbufout, outchar) = (bufOutInterface $ bfarch bfm') (bufout bfm') in
+                let newout = bfoutput bfdb ++ maybeToList outchar in
+                ((), bfdb { 
+                    bfmach = bfm' { bufout = newbufout }, 
+                    bfstatus = stat, 
+                    debugstate = newdbg,
+                    bfoutput = newout 
+                }))
 
 debuggerJump :: Eq cell => BFDebugMonad cell buf ()
 debuggerJump
@@ -211,6 +219,9 @@ bfShowDbgPane bfvs bfdb = str $
         BFError msg -> msg
         BFPause n -> "Stopped at breakpoint " ++ show n
 
+bfShowOutPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
+bfShowOutPane bfvs bfdb = str $ "Output: " ++ filter isPrint (bfoutput bfdb)
+
 bfShowProg :: BFProgram -> String
 bfShowProg (BFProgram prog) = go "" prog
     where
@@ -226,7 +237,7 @@ bfShowProg (BFProgram prog) = go "" prog
                 BFLoop prog -> go ('[':acc ++ "]") cmds
 
 bfUI :: BFViewSettings cell -> BFDebugger cell buf -> [Widget ()]
-bfUI bfvs bfdb = [bfShowMemPane bfvs bfdb <=> bfShowDbgPane bfvs bfdb]
+bfUI bfvs bfdb = [bfShowMemPane bfvs bfdb <=> bfShowDbgPane bfvs bfdb <=> bfShowOutPane bfvs bfdb]
 
 -- -- -- -- -- --
 -- CONTROLLER  --
@@ -259,6 +270,7 @@ bfMakeApp bfvs
 -- ARCHITECTURES  --
 -- -- -- -- -- -- --
 
+-- 8-bit cells supporting both overflow and underflow
 bf256ou :: BFArchitecture Int (Maybe Int)
 bf256ou = BFArchitecture {
     bfZero = 0,
@@ -267,8 +279,8 @@ bf256ou = BFArchitecture {
     decrementCell = Just . \c -> mod (c - 1) 256,
     readToCell = \b -> (Nothing, maybe 0 id b),
     writeFromCell = \b -> Just,
-    bufInInterface = \c -> \hdl -> maybe (fmap (Just . ord) $ hGetChar hdl) (return . Just) c,
-    bufOutInterface = \c -> \hdl -> (maybe (return ()) (\c -> hPutChar hdl (chr c)) c) >> return Nothing
+    bufInInterface = undefined,
+    bufOutInterface = \b -> (Nothing, fmap chr b)
 }
 
 -- -- -- --
@@ -278,8 +290,9 @@ bf256ou = BFArchitecture {
 myShow :: Int -> String
 myShow x = printf "%02x" x
 
-bfprog = "+>++>@+++>@++++++++++++++++@[->+<@]"
+-- bfprog = "+>++>@+++>@++++++++++++++++@[->+<@]"
 -- bfprog = "++++-----<"
+bfprog = "+++++++++++++++[->++<]>+++.+.+.+."
 bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 
 someFunc :: IO ()
@@ -292,7 +305,7 @@ someFunc
         chan <- newBChan 10
         void $ forkIO $ forever $ do
             writeBChan chan TickerEvent
-            threadDelay 500000
+            threadDelay 100000
 
         void $ customMainWithDefaultVty (Just chan) (bfMakeApp bfvs) bfdb
 -- someFunc = putStrLn "someFunc"
