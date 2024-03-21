@@ -52,14 +52,14 @@ data BFMachine cell buf = BFMachine {
 
 type BFMachMonad cell buf = S.State (BFMachine cell buf)
 
-data BFDebugState = DebugPaused | DebugRunning | DebugJumping | DebugStepping deriving Eq
+data BFDebugState = DebugRunning | DebugStepping deriving (Eq, Show)
 
 data BFDebugSettings = BFDebugSettings {
     msPerStep :: Int
 }
 
 defaultDebugSettings = BFDebugSettings {
-    msPerStep = 1000
+    msPerStep = 1024
 }
 
 data BFDebugger cell buf = BFDebugger {
@@ -231,6 +231,7 @@ bfShowMemInfoPane bfvs bfdb
 bfShowDbgPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
 bfShowDbgPane bfvs bfdb = str $
     "Milliseconds per step: " ++ show (msPerStep $ debugconf bfdb) ++ "\n" ++
+    "Debug state: " ++ show (debugstate bfdb) ++ "\n" ++
     case (bfstatus bfdb) of
         BFOk -> "Running..."
         BFError msg -> msg
@@ -271,23 +272,31 @@ isStepTime bfdb = mod (ticks bfdb) (msPerStep $ debugconf bfdb) == 0
 
 stepDurIncrease :: BFDebugger cell buf -> BFDebugger cell buf
 stepDurIncrease bfdb
-    = bfdb { debugconf = dbc { msPerStep = min 5000 (msPerStep dbc + 10) }, debugstate = DebugPaused }
+    = bfdb { debugconf = dbc { msPerStep = min 4096 (msPerStep dbc * 2) }, debugstate = DebugStepping }
         where dbc = debugconf bfdb
 
 stepDurDecrease :: BFDebugger cell buf -> BFDebugger cell buf
 stepDurDecrease bfdb
-    = bfdb { debugconf = dbc { msPerStep = max 10 (msPerStep dbc - 10) }, debugstate = DebugPaused }
+    = bfdb { debugconf = dbc { msPerStep = max 1 (msPerStep dbc `div` 2) }, debugstate = DebugStepping }
         where dbc = debugconf bfdb
 
 bfAppEvent :: 
     Eq cell => BrickEvent () TickerEvent -> EventM () (BFDebugger cell buf) ()
 bfAppEvent e =
     case e of
-        VtyEvent (V.EvKey V.KEsc []) -> halt
-        VtyEvent (V.EvKey V.KDown []) -> state (\bfdb -> ((), stepDurIncrease bfdb))
-        VtyEvent (V.EvKey V.KUp []) -> state (\bfdb -> ((), stepDurDecrease bfdb))
-        VtyEvent (V.EvKey V.KEnter []) -> state (\bfdb -> ((), bfdb { debugstate = DebugRunning }))
-        VtyEvent _ -> state (\bfdb -> S.runState debuggerStep bfdb)
+        VtyEvent (V.EvKey V.KEsc []) 
+            -> halt
+        VtyEvent (V.EvKey V.KDown []) 
+            -> state (\bfdb -> ((), stepDurIncrease bfdb))
+        VtyEvent (V.EvKey V.KUp []) 
+            -> state (\bfdb -> ((), stepDurDecrease bfdb))
+        VtyEvent (V.EvKey (V.KChar 'r') []) 
+            -> state (\bfdb -> ((), bfdb { debugstate = DebugRunning }))
+        VtyEvent (V.EvKey (V.KChar 's') []) 
+            -> state (\bfdb -> S.runState debuggerStep bfdb)
+        VtyEvent (V.EvKey (V.KChar 'j') []) 
+            -> state (\bfdb -> S.runState debuggerJump bfdb)
+        VtyEvent _ -> state (\bfdb -> ((), bfdb))
         AppEvent TickerEvent -> state (\bfdb ->  
             if debugstate bfdb == DebugRunning && isStepTime bfdb
             then S.runState debuggerStep bfdb
@@ -330,7 +339,7 @@ myShow x = printf "%02x" x
 
 -- bfprog = "+>++>@+++>@++++++++++++++++@[->+<@]"
 -- bfprog = "++++-----<"
-bfprog = "+++++++++++++++[->++<]>+++.+.+.+."
+bfprog = "+[[->+++<]>@]"
 bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 
 someFunc :: IO ()
