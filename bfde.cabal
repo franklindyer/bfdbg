@@ -25,7 +25,9 @@ source-repository head
 
 library
   exposed-modules:
+      Architectures
       Lib
+      Runner
   other-modules:
       Paths_bfde
   autogen-modules:
