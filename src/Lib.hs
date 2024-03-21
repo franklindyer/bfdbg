@@ -28,6 +28,8 @@ data BFCommand = BFLeft | BFRight | BFPlus | BFMinus | BFGet | BFPut | BFLoop BF
 data BFProgram = BFProgram [BFCommand] deriving Show
 
 data BFArchitecture cell buf = BFArchitecture {
+    archName        :: String,
+    archNameVerbose :: String,
     bfZero          :: cell,
     bfEmptyBuf      :: buf,
     incrementCell   :: cell -> Maybe cell,
@@ -255,6 +257,11 @@ bfShowProg (BFProgram prog) = go "" prog
                 BFPut -> go ('.':acc) cmds
                 BFLoop prog -> go ('[':acc ++ "]") cmds
 
+bfTitle :: BFDebugger cell buf -> Widget ()
+bfTitle bfdb = strWrap $
+    archName (bfarch $ bfmach bfdb) ++ " VIRTUAL MACHINE\n" ++
+    archNameVerbose (bfarch $ bfmach bfdb)
+
 bfInstructions :: Widget ()
 bfInstructions = strWrap $
     "Press R to continue running the simulator.\n" ++
@@ -266,7 +273,9 @@ bfUI :: BFViewSettings cell -> BFDebugger cell buf -> [Widget ()]
 bfUI bfvs bfdb 
     = [
         (border $ 
-            bfShowMemPane bfvs bfdb
+            bfTitle bfdb
+            <=> hBorder
+            <=> bfShowMemPane bfvs bfdb
             <=> hBorder 
             <=> (bfShowOutPane bfvs bfdb))
         <=> bfShowMemInfoPane bfvs bfdb
@@ -331,6 +340,8 @@ bfMakeApp bfvs
 -- 8-bit cells supporting both overflow and underflow
 bf256ou :: BFArchitecture Int (Maybe Int)
 bf256ou = BFArchitecture {
+    archName = "BF256OU",
+    archNameVerbose = "BF with 8-bit over- and underflowing cells",
     bfZero = 0,
     bfEmptyBuf = Nothing,
     incrementCell = Just . \c -> mod (c + 1) 256,
@@ -343,6 +354,8 @@ bf256ou = BFArchitecture {
 
 bfNat :: BFArchitecture Integer (Maybe Integer)
 bfNat = BFArchitecture {
+    archName = "BFNAT",
+    archNameVerbose = "BF with bounded below and unbounded above natural number cells",
     bfZero = 0,
     bfEmptyBuf = Nothing,
     incrementCell = Just . (1+),
@@ -368,8 +381,8 @@ bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 someFunc :: IO ()
 someFunc
     = do
-        let bfm = (bfInitMachine bfNat 100) { bfstack = [bfparsed] }
-        let bfvs = BFViewSettings {showCell = show, cellSpacing = 0}
+        let bfm = (bfInitMachine bf256ou 100) { bfstack = [bfparsed] }
+        let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
         let bfdb = BFDebugger {
             bfmach = bfm, 
             bfstatus = BFOk, 
