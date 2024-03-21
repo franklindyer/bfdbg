@@ -375,12 +375,17 @@ myShow x = printf "%02x" x
 
 -- bfprog = "+>++>@+++>@++++++++++++++++@[->+<@]"
 -- bfprog = "++++-----<"
-bfprog = "+[[->+++<]>@]"
-bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
+-- bfprog = "+[[->+++<]>@]"
+-- bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 
 someFunc :: IO ()
 someFunc
     = do
+        putStrLn "Where's your BF code?"
+        filename <- getLine
+        bfprog <- openFile filename ReadMode >>= hGetContents
+        let bfprog' = filter (not . isSpace) bfprog
+        let bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog')
         let bfm = (bfInitMachine bf256ou 100) { bfstack = [bfparsed] }
         let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
         let bfdb = BFDebugger {
