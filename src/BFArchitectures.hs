@@ -1,7 +1,27 @@
-module Architectures where
+module BFArchitectures where
 
+import Brick
+import Brick.BChan
+import Brick.Widgets.Border
+import Control.Concurrent (threadDelay, forkIO)
+import Control.Lens
+import Control.Monad (void, forever)
+import Control.Monad.State.Strict
+import Control.Monad.State.Lazy as S
 import Data.Char
-import Lib
+import Data.Maybe
+import System.IO
+import Text.Parsec
+import Text.Parsec.Char
+import Text.Printf
+
+import qualified Graphics.Vty as V
+
+import BFTypes
+
+-- -- -- -- -- -- --
+-- ARCHITECTURES  --
+-- -- -- -- -- -- --
 
 -- 8-bit cells supporting both overflow and underflow
 bf256ou :: BFArchitecture Int (Maybe Int)
@@ -18,7 +38,6 @@ bf256ou = BFArchitecture {
     bufOutInterface = \b -> (Nothing, fmap ((:[]) . chr) b)
 }
 
--- Unbounded-above natural number cells
 bfNat :: BFArchitecture Integer (Maybe Integer)
 bfNat = BFArchitecture {
     archName = "BFNAT",
@@ -32,3 +51,4 @@ bfNat = BFArchitecture {
     bufInInterface = undefined,
     bufOutInterface = \b -> (Nothing, fmap show b)
 }
+

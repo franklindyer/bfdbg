@@ -25,9 +25,13 @@ source-repository head
 
 library
   exposed-modules:
-      Architectures
+      BFArchitectures
+      BFController
+      BFDisplay
+      BFInterpreter
+      BFParsing
+      BFTypes
       Lib
-      Runner
   other-modules:
       Paths_bfde
   autogen-modules:
