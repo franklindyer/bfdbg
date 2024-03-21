@@ -54,11 +54,21 @@ type BFMachMonad cell buf = S.State (BFMachine cell buf)
 
 data BFDebugState = DebugPaused | DebugRunning | DebugJumping | DebugStepping deriving Eq
 
+data BFDebugSettings = BFDebugSettings {
+    msPerStep :: Int
+}
+
+defaultDebugSettings = BFDebugSettings {
+    msPerStep = 1000
+}
+
 data BFDebugger cell buf = BFDebugger {
     bfmach :: BFMachine cell buf,
     bfstatus :: BFResult,
     debugstate :: BFDebugState,
-    bfoutput :: String
+    bfoutput :: String,
+    ticks :: Int,
+    debugconf :: BFDebugSettings
 }
 
 type BFDebugMonad cell buf = S.State (BFDebugger cell buf)
@@ -173,6 +183,7 @@ debuggerStep
                     bfmach = bfm' { bufout = newbufout }, 
                     bfstatus = stat, 
                     debugstate = newdbg,
+                    ticks = 1,
                     bfoutput = newout 
                 }))
 
@@ -212,8 +223,14 @@ bfShowMem conf bfm
 bfShowMemPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
 bfShowMemPane bfvs = strWrap . (bfShowMem bfvs) . bfmach
 
+bfShowMemInfoPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
+bfShowMemInfoPane bfvs bfdb
+    = strWrap $
+        "Head position: " ++ show (headpos $ bfmach bfdb)
+
 bfShowDbgPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
 bfShowDbgPane bfvs bfdb = str $
+    "Milliseconds per step: " ++ show (msPerStep $ debugconf bfdb) ++ "\n" ++
     case (bfstatus bfdb) of
         BFOk -> "Running..."
         BFError msg -> msg
@@ -237,23 +254,44 @@ bfShowProg (BFProgram prog) = go "" prog
                 BFLoop prog -> go ('[':acc ++ "]") cmds
 
 bfUI :: BFViewSettings cell -> BFDebugger cell buf -> [Widget ()]
-bfUI bfvs bfdb = [bfShowMemPane bfvs bfdb <=> bfShowDbgPane bfvs bfdb <=> bfShowOutPane bfvs bfdb]
+bfUI bfvs bfdb 
+    = [
+        bfShowMemPane bfvs bfdb
+        <=> bfShowMemInfoPane bfvs bfdb
+        <=> bfShowDbgPane bfvs bfdb 
+        <=> bfShowOutPane bfvs bfdb
+    ]
 
 -- -- -- -- -- --
 -- CONTROLLER  --
 -- -- -- -- -- --
+
+isStepTime :: BFDebugger cell buf -> Bool
+isStepTime bfdb = mod (ticks bfdb) (msPerStep $ debugconf bfdb) == 0
+
+stepDurIncrease :: BFDebugger cell buf -> BFDebugger cell buf
+stepDurIncrease bfdb
+    = bfdb { debugconf = dbc { msPerStep = min 5000 (msPerStep dbc + 10) }, debugstate = DebugPaused }
+        where dbc = debugconf bfdb
+
+stepDurDecrease :: BFDebugger cell buf -> BFDebugger cell buf
+stepDurDecrease bfdb
+    = bfdb { debugconf = dbc { msPerStep = max 10 (msPerStep dbc - 10) }, debugstate = DebugPaused }
+        where dbc = debugconf bfdb
 
 bfAppEvent :: 
     Eq cell => BrickEvent () TickerEvent -> EventM () (BFDebugger cell buf) ()
 bfAppEvent e =
     case e of
         VtyEvent (V.EvKey V.KEsc []) -> halt
+        VtyEvent (V.EvKey V.KDown []) -> state (\bfdb -> ((), stepDurIncrease bfdb))
+        VtyEvent (V.EvKey V.KUp []) -> state (\bfdb -> ((), stepDurDecrease bfdb))
         VtyEvent (V.EvKey V.KEnter []) -> state (\bfdb -> ((), bfdb { debugstate = DebugRunning }))
         VtyEvent _ -> state (\bfdb -> S.runState debuggerStep bfdb)
         AppEvent TickerEvent -> state (\bfdb ->  
-            if debugstate bfdb == DebugRunning
+            if debugstate bfdb == DebugRunning && isStepTime bfdb
             then S.runState debuggerStep bfdb
-            else ((), bfdb))
+            else ((), bfdb { ticks = 1 + ticks bfdb }))
 
 bfMakeApp :: 
     Eq cell => BFViewSettings cell -> App (BFDebugger cell buf) TickerEvent ()
@@ -300,12 +338,19 @@ someFunc
     = do
         let bfm = (bfInitMachine bf256ou 30) { bfstack = [bfparsed] }
         let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
-        let bfdb = BFDebugger {bfmach = bfm, bfstatus = BFOk, debugstate = DebugRunning, bfoutput = ""}
+        let bfdb = BFDebugger {
+            bfmach = bfm, 
+            bfstatus = BFOk, 
+            debugstate = DebugRunning, 
+            bfoutput = "",
+            ticks = 0,
+            debugconf = defaultDebugSettings
+        }
 
         chan <- newBChan 10
         void $ forkIO $ forever $ do
             writeBChan chan TickerEvent
-            threadDelay 100000
+            threadDelay 1000
 
         void $ customMainWithDefaultVty (Just chan) (bfMakeApp bfvs) bfdb
 -- someFunc = putStrLn "someFunc"
