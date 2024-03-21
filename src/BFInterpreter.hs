@@ -85,9 +85,21 @@ isPause :: BFResult -> Bool
 isPause (BFPause n) = True
 isPause _           = False
 
+debuggerLoadBufIn :: BFDebugMonad cell buf ()
+debuggerLoadBufIn
+    = do
+        inputBuffer <- fmap (bufin . bfmach) get
+        inputString <- fmap bfinput get
+        bufInInt <- fmap (bufInInterface . bfarch . bfmach) get
+        let (inputBuffer', inputString') = bufInInt inputBuffer inputString
+        modify (\bfdb -> bfdb { bfmach = (bfmach bfdb) { bufin = inputBuffer' }, bfinput = inputString' })
+        return () 
+
 debuggerStep :: Eq cell => BFDebugMonad cell buf ()
 debuggerStep
-    = state (\bfdb ->
+  = do
+      debuggerLoadBufIn
+      state (\bfdb ->
         case (bfstatus bfdb) of
             BFError _ -> ((), bfdb)
             _ ->
@@ -95,7 +107,7 @@ debuggerStep
                 let (stat, bfm') = S.runState runNextCommand bfm in
                 let newdbg = if isPause stat then DebugStepping else debugstate bfdb in
                 let (newbufout, outstr) = (bufOutInterface $ bfarch bfm') (bufout bfm') in
-                let newout = bfoutput bfdb ++ (maybe [] id outstr) in
+                let newout = bfoutput bfdb ++ outstr in
                 ((), bfdb { 
                     bfmach = bfm' { bufout = newbufout }, 
                     bfstatus = stat, 

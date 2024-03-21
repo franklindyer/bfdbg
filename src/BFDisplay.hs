@@ -48,6 +48,9 @@ bfShowDbgPane bfvs bfdb = str $
         BFError msg -> msg
         BFPause n -> "Stopped at breakpoint " ++ show n
 
+bfShowInPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
+bfShowInPane bfvs bfdb = str $ "Input: " ++ filter isPrint (bfinput bfdb)
+
 bfShowOutPane :: BFViewSettings cell -> BFDebugger cell buf -> Widget ()
 bfShowOutPane bfvs bfdb = str $ "Output: " ++ filter isPrint (bfoutput bfdb)
 
@@ -75,7 +78,8 @@ bfInstructions = strWrap $
     "Press R to continue running the simulator.\n" ++
     "Use the up and down arrow keys to adjust debugger speed.\n" ++
     "Press S to step through the simulation.\n" ++
-    "Press J to jump forward to your next break point." 
+    "Press J to jump forward to your next break point.\n" ++
+    "Press Q to quit." 
 
 bfUI :: BFViewSettings cell -> BFDebugger cell buf -> [Widget ()]
 bfUI bfvs bfdb 
@@ -84,7 +88,9 @@ bfUI bfvs bfdb
             bfTitle bfdb
             <=> hBorder
             <=> bfShowMemPane bfvs bfdb
-            <=> hBorder 
+            <=> hBorder
+            <=> (bfShowInPane bfvs bfdb)
+            <=> hBorder
             <=> (bfShowOutPane bfvs bfdb))
         <=> bfShowMemInfoPane bfvs bfdb
         <=> bfShowDbgPane bfvs bfdb 

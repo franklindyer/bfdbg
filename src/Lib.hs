@@ -37,7 +37,8 @@ runBrainfuckDebugger
         let bfdb = BFDebugger {
             bfmach = bfm, 
             bfstatus = BFOk, 
-            debugstate = DebugRunning, 
+            debugstate = DebugStepping,
+            bfinput = "ABCDabcd", 
             bfoutput = "",
             ticks = 0,
             debugconf = defaultDebugSettings

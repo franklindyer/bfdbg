@@ -1,0 +1,71 @@
+bfde> build (lib + exe)
+Preprocessing library for bfde-0.1.0.0..
+Building library for bfde-0.1.0.0..
+[3 of 8] Compiling BFInterpreter [BFTypes changed]
+
+/Users/franklindyer/Documents/dev/haskell-fuckery/bfde/src/BFInterpreter.hs:108:60: error: [GHC-83865]
+    • Couldn't match type: [Char]
+                     with: Maybe [Char]
+      Expected: Maybe [Char]
+        Actual: String
+    • In the third argument of ‘maybe’, namely ‘outstr’
+      In the second argument of ‘(++)’, namely ‘(maybe [] id outstr)’
+      In the expression: bfoutput bfdb ++ (maybe [] id outstr)
+    |
+108 |                 let newout = bfoutput bfdb ++ (maybe [] id outstr) in
+    |                                                            ^^^^^^
+[6 of 8] Compiling BFArchitectures [Source file changed]
+
+/Users/franklindyer/Documents/dev/haskell-fuckery/bfde/src/BFArchitectures.hs:37:34: error: [GHC-83865]
+    • Couldn't match expected type: (Maybe Int, String)
+                  with actual type: Maybe a0 -> (String, [Char])
+    • Probable cause: ‘maybe’ is applied to too few arguments
+      In the expression:
+        maybe
+          (if null s then ("", 0) else (ord $ head s, tail s))
+          (\ b' -> (Just b', s))
+      In the expression:
+        \ s
+          -> maybe
+               (if null s then ("", 0) else (ord $ head s, tail s))
+               (\ b' -> (Just b', s))
+      In the ‘bufInInterface’ field of a record
+   |
+37 |     bufInInterface = \b -> \s -> maybe (if null s then ("", 0) else (ord $ head s, tail s)) (\b' -> (Just b', s)),
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/Users/franklindyer/Documents/dev/haskell-fuckery/bfde/src/BFArchitectures.hs:37:70: error: [GHC-83865]
+    • Couldn't match type ‘Int’ with ‘[Char]’
+      Expected: String
+        Actual: Int
+    • In the expression: ord $ head s
+      In the expression: (ord $ head s, tail s)
+      In the first argument of ‘maybe’, namely
+        ‘(if null s then ("", 0) else (ord $ head s, tail s))’
+   |
+37 |     bufInInterface = \b -> \s -> maybe (if null s then ("", 0) else (ord $ head s, tail s)) (\b' -> (Just b', s)),
+   |                                                                      ^^^^^^^^^^^^
+
+/Users/franklindyer/Documents/dev/haskell-fuckery/bfde/src/BFArchitectures.hs:37:102: error: [GHC-83865]
+    • Couldn't match type: Maybe a0
+                     with: [Char]
+      Expected: String
+        Actual: Maybe a0
+    • In the expression: Just b'
+      In the expression: (Just b', s)
+      In the second argument of ‘maybe’, namely ‘(\ b' -> (Just b', s))’
+    • Relevant bindings include
+        b' :: a0 (bound at src/BFArchitectures.hs:37:95)
+   |
+37 |     bufInInterface = \b -> \s -> maybe (if null s then ("", 0) else (ord $ head s, tail s)) (\b' -> (Just b', s)),
+   |                                                                                                      ^^^^^^^
+
+Error: [S-7282]
+       Stack failed to execute the build plan.
+       
+       While executing the build plan, Stack encountered the error:
+       
+       [S-7011]
+       While building package bfde-0.1.0.0 (scroll up to its section to see the error) using:
+       /Users/franklindyer/.stack/setup-exe-cache/aarch64-osx/Cabal-simple_6HauvNHV_3.10.1.0_ghc-9.6.4 --verbose=1 --builddir=.stack-work/dist/aarch64-osx/ghc-9.6.4 build lib:bfde exe:bfde-exe --ghc-options ""
+       Process exited with code: ExitFailure 1 

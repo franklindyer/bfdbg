@@ -42,7 +42,7 @@ bfAppEvent ::
     Eq cell => BrickEvent () TickerEvent -> EventM () (BFDebugger cell buf) ()
 bfAppEvent e =
     case e of
-        VtyEvent (V.EvKey V.KEsc []) 
+        VtyEvent (V.EvKey (V.KChar 'q') []) 
             -> halt
         VtyEvent (V.EvKey V.KDown []) 
             -> state (\bfdb -> ((), stepDurIncrease bfdb))

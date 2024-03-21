@@ -19,8 +19,8 @@ data BFArchitecture cell buf = BFArchitecture {
     decrementCell   :: cell -> Maybe cell,
     readToCell      :: buf -> (buf, cell),
     writeFromCell   :: buf -> cell -> buf,
-    bufInInterface  :: buf -> (buf, Bool),      -- Bool indicates whether more input is needed
-    bufOutInterface :: buf -> (buf, Maybe String)
+    bufInInterface  :: buf -> String -> (buf, String),
+    bufOutInterface :: buf -> (buf, String)
 }
 
 data BFResult = BFOk | BFError String | BFPause Int deriving (Eq, Show)
@@ -52,6 +52,7 @@ data BFDebugger cell buf = BFDebugger {
     bfmach :: BFMachine cell buf,
     bfstatus :: BFResult,
     debugstate :: BFDebugState,
+    bfinput :: String,
     bfoutput :: String,
     ticks :: Int,
     debugconf :: BFDebugSettings

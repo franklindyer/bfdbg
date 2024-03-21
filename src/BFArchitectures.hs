@@ -34,8 +34,8 @@ bf256ou = BFArchitecture {
     decrementCell = Just . \c -> mod (c - 1) 256,
     readToCell = \b -> (Nothing, maybe 0 id b),
     writeFromCell = \b -> Just,
-    bufInInterface = undefined,
-    bufOutInterface = \b -> (Nothing, fmap ((:[]) . chr) b)
+    bufInInterface = \b -> \s -> maybe (if null s then (Nothing, "") else (Just $ ord $ head s, tail s)) (\b' -> (Just b', s)) b,
+    bufOutInterface = \b -> (Nothing, maybeToList $ fmap chr b)
 }
 
 bfNat :: BFArchitecture Integer (Maybe Integer)
@@ -49,6 +49,6 @@ bfNat = BFArchitecture {
     readToCell = \b -> (Nothing, maybe 0 id b),
     writeFromCell = \b -> Just,
     bufInInterface = undefined,
-    bufOutInterface = \b -> (Nothing, fmap show b)
+    bufOutInterface = \b -> (Nothing, concat $ maybeToList $ fmap show b)
 }
 
