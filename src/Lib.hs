@@ -4,6 +4,7 @@ module Lib
 
 import Brick
 import Brick.BChan
+import Brick.Widgets.Border
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Lens
 import Control.Monad (void, forever)
@@ -34,7 +35,7 @@ data BFArchitecture cell buf = BFArchitecture {
     readToCell      :: buf -> (buf, cell),
     writeFromCell   :: buf -> cell -> buf,
     bufInInterface  :: buf -> (buf, Bool),      -- Bool indicates whether more input is needed
-    bufOutInterface :: buf -> (buf, Maybe Char)
+    bufOutInterface :: buf -> (buf, Maybe String)
 }
 
 data BFResult = BFOk | BFError String | BFPause Int deriving (Eq, Show)
@@ -177,8 +178,8 @@ debuggerStep
                 let bfm = bfmach bfdb in
                 let (stat, bfm') = S.runState runNextCommand bfm in
                 let newdbg = if isPause stat then DebugStepping else debugstate bfdb in
-                let (newbufout, outchar) = (bufOutInterface $ bfarch bfm') (bufout bfm') in
-                let newout = bfoutput bfdb ++ maybeToList outchar in
+                let (newbufout, outstr) = (bufOutInterface $ bfarch bfm') (bufout bfm') in
+                let newout = bfoutput bfdb ++ (maybe [] id outstr) in
                 ((), bfdb { 
                     bfmach = bfm' { bufout = newbufout }, 
                     bfstatus = stat, 
@@ -254,13 +255,23 @@ bfShowProg (BFProgram prog) = go "" prog
                 BFPut -> go ('.':acc) cmds
                 BFLoop prog -> go ('[':acc ++ "]") cmds
 
+bfInstructions :: Widget ()
+bfInstructions = strWrap $
+    "Press R to continue running the simulator.\n" ++
+    "Use the up and down arrow keys to adjust debugger speed.\n" ++
+    "Press S to step through the simulation.\n" ++
+    "Press J to jump forward to your next break point." 
+
 bfUI :: BFViewSettings cell -> BFDebugger cell buf -> [Widget ()]
 bfUI bfvs bfdb 
     = [
-        bfShowMemPane bfvs bfdb
+        (border $ 
+            bfShowMemPane bfvs bfdb
+            <=> hBorder 
+            <=> (bfShowOutPane bfvs bfdb))
         <=> bfShowMemInfoPane bfvs bfdb
         <=> bfShowDbgPane bfvs bfdb 
-        <=> bfShowOutPane bfvs bfdb
+        <=> border bfInstructions
     ]
 
 -- -- -- -- -- --
@@ -293,7 +304,7 @@ bfAppEvent e =
         VtyEvent (V.EvKey (V.KChar 'r') []) 
             -> state (\bfdb -> ((), bfdb { debugstate = DebugRunning }))
         VtyEvent (V.EvKey (V.KChar 's') []) 
-            -> state (\bfdb -> S.runState debuggerStep bfdb)
+            -> state (\bfdb -> S.runState debuggerStep (bfdb { debugstate = DebugStepping }))
         VtyEvent (V.EvKey (V.KChar 'j') []) 
             -> state (\bfdb -> S.runState debuggerJump bfdb)
         VtyEvent _ -> state (\bfdb -> ((), bfdb))
@@ -327,7 +338,19 @@ bf256ou = BFArchitecture {
     readToCell = \b -> (Nothing, maybe 0 id b),
     writeFromCell = \b -> Just,
     bufInInterface = undefined,
-    bufOutInterface = \b -> (Nothing, fmap chr b)
+    bufOutInterface = \b -> (Nothing, fmap ((:[]) . chr) b)
+}
+
+bfNat :: BFArchitecture Integer (Maybe Integer)
+bfNat = BFArchitecture {
+    bfZero = 0,
+    bfEmptyBuf = Nothing,
+    incrementCell = Just . (1+),
+    decrementCell = \c -> if c > 0 then Just (c-1) else Nothing,
+    readToCell = \b -> (Nothing, maybe 0 id b),
+    writeFromCell = \b -> Just,
+    bufInInterface = undefined,
+    bufOutInterface = \b -> (Nothing, fmap show b)
 }
 
 -- -- -- --
@@ -345,8 +368,8 @@ bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog)
 someFunc :: IO ()
 someFunc
     = do
-        let bfm = (bfInitMachine bf256ou 30) { bfstack = [bfparsed] }
-        let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
+        let bfm = (bfInitMachine bfNat 100) { bfstack = [bfparsed] }
+        let bfvs = BFViewSettings {showCell = show, cellSpacing = 0}
         let bfdb = BFDebugger {
             bfmach = bfm, 
             bfstatus = BFOk, 
