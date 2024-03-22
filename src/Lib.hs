@@ -28,18 +28,19 @@ import BFController
 runBrainfuckDebugger :: IO ()
 runBrainfuckDebugger
     = do
-        -- putStrLn "Where's your BF code?"
         args <- getArgs
         let codefile = if null args then "" else args !! 0
-        let infile = if (length args < 2) then "" else args !! 1
-        bfprog <- openFile codefile ReadMode >>= hGetContents
-        stringIn <- openFile infile ReadMode >>= hGetContents
+        codehandle <- openFile codefile ReadMode
+        (optArch, optSize, inFile) <- fmap bfParseRunOpts $ hGetLine codehandle
+        let nCells = read optSize
+        inHandle <- openFile inFile ReadMode
+        bfprog <- hGetContents codehandle
+        stringIn <- hGetContents inHandle
         let bfprog' = filter (not . isSpace) bfprog
         let bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog')
-        let bfm = (bfInitMachine bf2ou 100) { bfstack = [bfparsed] }
-        let bfvs = BFViewSettings {showCell = \b -> if b then "1" else "0", cellSpacing = 0}
+        let bfvs = BFViewSettings {showCell = undefined, cellSpacing = 0}
         let bfdb = BFDebugger {
-            bfmach = bfm, 
+            bfmach = undefined, 
             bfstatus = BFOk, 
             debugstate = DebugStepping,
             bfinput = stringIn, 
@@ -53,5 +54,12 @@ runBrainfuckDebugger
             writeBChan chan TickerEvent
             threadDelay 1000
 
-        void $ customMainWithDefaultVty (Just chan) (bfMakeApp bfvs) bfdb
-
+        case optArch of
+            "bf256ou"   
+                -> void $ customMainWithDefaultVty (Just chan) (bfMakeApp $ bfvs { showCell = myShow }) (bfdb { bfmach = (bfInitMachine bf256ou nCells) { bfstack = [bfparsed] } })
+            "bfNat"     
+                -> void $ customMainWithDefaultVty (Just chan) (bfMakeApp $ bfvs { showCell = show }) (bfdb { bfmach = (bfInitMachine bfNat nCells) { bfstack = [bfparsed] } })
+            "bf2ou"     
+                -> void $ customMainWithDefaultVty (Just chan) (bfMakeApp $ bfvs { showCell = \b -> if b then "1" else "0" }) (bfdb { bfmach = (bfInitMachine bf2ou nCells) { bfstack = [bfparsed] } })
+            _           -> putStrLn $ "Invalid architecture: " ++ optArch
+        return ()

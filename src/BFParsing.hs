@@ -1,6 +1,7 @@
 module BFParsing where
 
 import Data.Char
+import Data.List.Split
 import Data.Maybe
 import Text.Parsec
 import Text.Parsec.Char
@@ -13,6 +14,11 @@ import BFTypes
 -- -- -- -- --
 -- PARSING  --
 -- -- -- -- --
+
+bfParseRunOpts  :: String -> (String, String, String)
+bfParseRunOpts opts
+    = let optparts = splitOn " " opts in
+        (optparts !! 0, optparts !! 1, optparts !! 2)
 
 bfParsePrimitive :: Parsec String Int BFCommand
 bfParsePrimitive
