@@ -23,7 +23,20 @@ import BFTypes
 -- ARCHITECTURES  --
 -- -- -- -- -- -- --
 
--- 8-bit cells supporting both overflow and underflow
+bf2ou :: BFArchitecture Bool (Maybe Bool)
+bf2ou = BFArchitecture {
+    archName = "BF2OU",
+    archNameVerbose = "BF with binary over- and underflowing cells",
+    bfZero = False,
+    bfEmptyBuf = Nothing,
+    incrementCell = Just . not,
+    decrementCell = Just . not,
+    readToCell = \b -> (Nothing, maybe False id b),
+    writeFromCell = \b -> Just, 
+    bufInInterface = \b -> \s -> maybe (if null s then (Nothing, "") else (Just $ head s /= '0', tail s)) (\b' -> (Just b', s)) b,
+    bufOutInterface = \b -> (Nothing, maybeToList $ fmap (\b' -> if b' then '1' else '0') b)
+}
+
 bf256ou :: BFArchitecture Int (Maybe Int)
 bf256ou = BFArchitecture {
     archName = "BF256OU",

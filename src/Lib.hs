@@ -10,6 +10,7 @@ import Control.Monad.State.Strict
 import Control.Monad.State.Lazy as S
 import Data.Char
 import Data.Maybe
+import System.Environment
 import System.IO
 import Text.Parsec
 import Text.Parsec.Char
@@ -27,18 +28,21 @@ import BFController
 runBrainfuckDebugger :: IO ()
 runBrainfuckDebugger
     = do
-        putStrLn "Where's your BF code?"
-        filename <- getLine
-        bfprog <- openFile filename ReadMode >>= hGetContents
+        -- putStrLn "Where's your BF code?"
+        args <- getArgs
+        let codefile = if null args then "" else args !! 0
+        let infile = if (length args < 2) then "" else args !! 1
+        bfprog <- openFile codefile ReadMode >>= hGetContents
+        stringIn <- openFile infile ReadMode >>= hGetContents
         let bfprog' = filter (not . isSpace) bfprog
         let bfparsed = either (\_ -> BFProgram []) id (runParser bfParser 0 "" bfprog')
-        let bfm = (bfInitMachine bf256ou 100) { bfstack = [bfparsed] }
-        let bfvs = BFViewSettings {showCell = myShow, cellSpacing = 0}
+        let bfm = (bfInitMachine bf2ou 100) { bfstack = [bfparsed] }
+        let bfvs = BFViewSettings {showCell = \b -> if b then "1" else "0", cellSpacing = 0}
         let bfdb = BFDebugger {
             bfmach = bfm, 
             bfstatus = BFOk, 
             debugstate = DebugStepping,
-            bfinput = "ABCDabcd", 
+            bfinput = stringIn, 
             bfoutput = "",
             ticks = 0,
             debugconf = defaultDebugSettings
