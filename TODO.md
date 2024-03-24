@@ -1,6 +1,6 @@
 ## Static analysis
 
-At some point, I'd like to add some utilities for static analysis of BF code. It could recognize some common patterns and comment on them for the user. For instance:
+At some point, I'd like to add some utilities for static analysis of BF code. It could recognize some common patterns and comment on them for the user, or optimize away certain inefficient constructions included for convenience. For instance:
 
 - Both `X+-Y` and `X-+Y` are identical to `XY`
 - Both `X<>Y` and `X><Y` are identical to `XY`, except that one of them might possibly go out of bounds

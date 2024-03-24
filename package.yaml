@@ -25,6 +25,7 @@ dependencies:
 - lens
 - mtl
 - parsec
+- split
 - vty
 
 ghc-options:

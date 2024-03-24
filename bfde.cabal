@@ -45,6 +45,7 @@ library
     , lens
     , mtl
     , parsec
+    , split
     , vty
   default-language: Haskell2010
 
@@ -64,6 +65,7 @@ executable bfde-exe
     , lens
     , mtl
     , parsec
+    , split
     , vty
   default-language: Haskell2010
 
@@ -84,5 +86,6 @@ test-suite bfde-test
     , lens
     , mtl
     , parsec
+    , split
     , vty
   default-language: Haskell2010
