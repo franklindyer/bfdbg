@@ -1,5 +1,7 @@
 ## Get started
 
+![](https://github.com/franklindyer/bfdbg/blob/main/img/thuemorse-demo.png)
+
 This is a WIP debugger/development environment for writing Brainfuck code. It doesn't run BF code particularly *quickly*, but it includes some tools that are useful to troubleshoot your code step by step.
 
 You can try it out for yourself as follows:
