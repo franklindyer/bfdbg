@@ -23,7 +23,7 @@ The first line of any `.bf` file that you run with the debugger should contain a
 For instance, the sample script `code/thuemorse.bf` begins with the following line:
 
 ```
-bf2ou 800 in.txt
+bf2ou 800 /dev/null
 ```
 
 More on the different architectures in a second. For now, suffice it to say that if you're used to the usual version of Brainfuck in which each cell holds a byte, you should write `bf256ou` as the architecture.
