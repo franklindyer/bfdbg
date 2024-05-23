@@ -63,3 +63,12 @@ runBrainfuckDebugger
                 -> void $ customMainWithDefaultVty (Just chan) (bfMakeApp $ bfvs { showCell = \b -> if b then "1" else "0" }) (bfdb { bfmach = (bfInitMachine bf2ou nCells) { bfstack = [bfparsed] } })
             _           -> putStrLn $ "Invalid architecture: " ++ optArch
         return ()
+
+runBrainfuckTranspiler :: (String -> String) -> IO ()
+runBrainfuckTranspiler tr
+    = do
+        args <- getArgs
+        let codefile = if null args then "" else args !! 0
+        codehandle <- openFile codefile ReadMode
+        contents <- hGetContents codehandle
+        putStr (tr contents) 

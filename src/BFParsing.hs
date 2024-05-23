@@ -35,3 +35,40 @@ bfParser
     = fmap BFProgram $ many $
       bfParsePrimitive
         <|> (fmap BFLoop $ between (char '[') (char ']') bfParser)
+
+-- -- -- -- -- --
+-- TRANSPILING --
+-- -- -- -- -- --
+
+bf256ouTo2ou :: String -> String
+bf256ouTo2ou = (initializer ++) . concatMap subber
+    where
+        initializer = "+"
+        plusSub = ">[+>]+<+[+<+]+>>>>>>>>>>[+]+<[>+<+]<<<<<<<<<"
+        minusNoFlag = "+>+[>+]<[<]+"
+        minusSub = ">>>>>>>>>[+]+<<<<<<<<<" ++ minusNoFlag ++ minusNoFlag ++ ">>>>>>>>>[+]<<<<<<<<<" ++ plusSub
+        leftSub = "<<<<<<<<<<<"
+        rightSub = ">>>>>>>>>>>[+]+"
+        putSub = ">.>.>.>.>.>.>.>.<<<<<<<<"
+        getSub = ">,>,>,>,>,>,>,>,<<<<<<<<"
+        openLoopSub = ">>>>>>>>>>[<<<<<<<<<<"
+        closeLoopSub = ">>>>>>>>>>]<<<<<<<<<<"
+        subber c = case c of
+            '+' -> plusSub
+            '-' -> minusSub
+            '<' -> leftSub
+            '>' -> rightSub
+            '.' -> putSub
+            ',' -> getSub
+            '[' -> openLoopSub
+            ']' -> closeLoopSub
+            '@' -> "@"
+            _   -> ""
+
+bf256ouTo2ouTranspiler :: String -> String
+bf256ouTo2ouTranspiler incode = outcode
+    where
+        (header, cmds) = (takeWhile (/= '\n') incode, tail $ dropWhile (/= '\n') incode)
+        (inarch, memsize, infile) = bfParseRunOpts header
+        newMemsize = 11 * (read memsize :: Int)
+        outcode = "bf2ou " ++ show newMemsize ++ " " ++ infile ++ "\n" ++ bf256ouTo2ou cmds
