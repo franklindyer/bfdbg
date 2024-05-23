@@ -72,3 +72,7 @@ bf256ouTo2ouTranspiler incode = outcode
         (inarch, memsize, infile) = bfParseRunOpts header
         newMemsize = 11 * (read memsize :: Int)
         outcode = "bf2ou " ++ show newMemsize ++ " " ++ infile ++ "\n" ++ bf256ouTo2ou cmds
+
+locateTranspiler :: String -> String -> Maybe (String -> String)
+locateTranspiler "bf256ou" "bf2ou"  = Just bf256ouTo2ouTranspiler
+locateTranspiler _ _                = Nothing

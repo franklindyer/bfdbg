@@ -4,5 +4,6 @@ import BFParsing
 import Lib
 
 main :: IO ()
-main = runBrainfuckDebugger
+-- main = runBrainfuckDebugger
 -- main = runBrainfuckTranspiler bf256ouTo2ouTranspiler
+main = runUtility

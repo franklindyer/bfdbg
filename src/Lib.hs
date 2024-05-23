@@ -25,10 +25,9 @@ import BFDisplay
 import BFArchitectures
 import BFController
 
-runBrainfuckDebugger :: IO ()
-runBrainfuckDebugger
+runBrainfuckDebugger :: [String] -> IO ()
+runBrainfuckDebugger args
     = do
-        args <- getArgs
         let codefile = if null args then "" else args !! 0
         codehandle <- openFile codefile ReadMode
         (optArch, optSize, inFile) <- fmap bfParseRunOpts $ hGetLine codehandle
@@ -64,11 +63,36 @@ runBrainfuckDebugger
             _           -> putStrLn $ "Invalid architecture: " ++ optArch
         return ()
 
-runBrainfuckTranspiler :: (String -> String) -> IO ()
-runBrainfuckTranspiler tr
+runBrainfuckTranspiler :: [String] -> IO ()
+runBrainfuckTranspiler args
+    = do
+        let codefile = if null args then "" else args !! 0
+        let targetArch = args !! 1
+        codehandle <- openFile codefile ReadMode
+        header <- hGetLine codehandle
+        let (sourceArch, optSize, inFile) = bfParseRunOpts header
+        let mtr = locateTranspiler sourceArch targetArch
+        case mtr of
+            Nothing -> putStrLn ("No transpiler found for " ++ sourceArch ++ " -> " ++ targetArch)
+            (Just tr) -> do
+                code <- hGetContents codehandle
+                putStr (tr $ header ++ "\n" ++ code)
+
+runHelpMenu :: IO ()
+runHelpMenu
+    = do
+        putStrLn "BFDB is a debugger and general-purpose toolbox for goofing around with Brainfuck code."
+        putStrLn "COMMANDS:"
+        putStrLn "\tdebug /path/to/code.bf - run Brainfuck code in interactive debugger"
+        putStrLn "\ttranspile /path/to/code.bf <arch> - transpile Brainfuck code to architecture <arch>"
+        putStrLn "\thelp - show this help menu"
+
+runUtility :: IO ()
+runUtility
     = do
         args <- getArgs
-        let codefile = if null args then "" else args !! 0
-        codehandle <- openFile codefile ReadMode
-        contents <- hGetContents codehandle
-        putStr (tr contents) 
+        case args of
+            ("debug":args')     -> runBrainfuckDebugger args'
+            ("transpile":args') -> runBrainfuckTranspiler args'
+            ("help":args')      -> runHelpMenu
+            _                   -> putStrLn "Unrecognized command. Use command 'help' to show a help menu."
